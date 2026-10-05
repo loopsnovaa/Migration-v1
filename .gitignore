@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+
+venv/
+.venv/
+env/
+
+ai/price_history.json
+
+/tmp/
+*.img
+
+*.log
+
+.DS_Store
