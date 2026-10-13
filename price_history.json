@@ -1,0 +1,23 @@
+[
+    {
+        "timestamp": "2026-10-06T11:22:49",
+        "cpu": 12.6,
+        "ram": 26.4,
+        "network_mbps": 0.011,
+        "price": 11.631
+    },
+    {
+        "timestamp": "2026-10-06T11:22:52",
+        "cpu": 8.5,
+        "ram": 26.4,
+        "network_mbps": 0.002,
+        "price": 11.409
+    },
+    {
+        "timestamp": "2026-10-06T11:22:55",
+        "cpu": 9.8,
+        "ram": 26.4,
+        "network_mbps": 0.003,
+        "price": 11.48
+    }
+]

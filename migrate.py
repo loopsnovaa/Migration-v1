@@ -3,7 +3,7 @@ import sys
 import os
 import shutil
 
-BASE_DIR = "/tmp/criu-precopy"
+BASE_DIR = "/home/loopsnova/migration-v1/checkpoints"
 ITERATIONS = 3
 
 def run_criu(command):
@@ -50,7 +50,7 @@ def pre_dump(pid, iteration, previous_dir=None):
 
 def final_dump(pid, previous_dir):
   final_dir = os.path.join(BASE_DIR, "final")
-  os.makedirs(final_dir)
+  os.makedirs(final_dir, exist_ok=True)
   print("\n=============FINAL DUMP===============")
   command = [
     "sudo",
@@ -72,7 +72,7 @@ def final_dump(pid, previous_dir):
 
   print("Final CRIU dump completed")
   print(f"Final checkpoint: {final_dir}")
-  
+  return final_dir  
 def main():
   if len(sys.argv) != 2:
     print("Usage:")
@@ -94,9 +94,26 @@ def main():
     if iteration < ITERATIONS:
       print("\nApplication continues running...")
       subprocess.run(["sleep","3"])
-  final_dump(pid, previous_dir)
+  #final_dump(pid, previous_dir)
   print("PRE-COPY COMPLETE")
   print(f"Checkpoint are in: {BASE_DIR}")
+  final_dir = final_dump(pid, previous_dir)
+  print("\n[RESTORE] restoring checkpoint...")
+  restore_cmd = [
+    "sudo", "criu", "restore",
+    "-D", final_dir,
+    "--shell_job",
+    "-d",
+    "--log-file", os.path.join(final_dir, "restore.log"),
+    "-v4"
+  ]
+  result = subprocess.run(restore_cmd)
+  if result.returncode == 0:
+    print("[SUCCESS} MIgration successful!")
+    print("[INFO] restored process should continue from its saved count")
+  else:
+    print("[ERROR] MIgration restore failed")
+    print(f"[INFO] check {os.path.join(final_dir, 'restore.log')}")
 
 if __name__ == "__main__":
   main()
