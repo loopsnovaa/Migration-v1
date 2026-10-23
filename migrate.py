@@ -128,7 +128,7 @@ def main():
 
         print("Source stopped. Reading its final saved count...")
         expected_count = get_saved_count()
-        print(f"Source final saved count: {expected_count}")
+        print(f"VERIFICATION: final source count = {expected_count}")
 
         print("\n============= DESTINATION RESTORE =============")
 
