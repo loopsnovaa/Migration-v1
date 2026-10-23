@@ -61,6 +61,27 @@ def get_saved_count():
         )
 
 
+def write_saved_count(count):
+    run_command([
+        "docker", "run", "--rm",
+        "-v", f"{STATE_VOLUME}:/state",
+        "alpine",
+        "sh", "-c",
+        f"printf '%s' '{count}' > /state/count.txt"
+    ])
+
+    actual_count = get_saved_count()
+
+    if actual_count != count:
+        raise RuntimeError(
+            f"State write verification failed: expected {count}, "
+            f"found {actual_count}"
+        )
+
+    print(f"Verified shared state: {actual_count}")
+
+
+
 def pre_copy(iteration):
     print(
         f"\n============= PRE-COPY ROUND {iteration} =============",
