@@ -1,10 +1,10 @@
 __pycache__/
-*.pyc
+*.py[cod]
 
-venv/
 .venv/
+venv/
 env/
-
+checkpoints/ 
 ai/price_history.json
 
 /tmp/

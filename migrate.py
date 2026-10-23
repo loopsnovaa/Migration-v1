@@ -102,14 +102,15 @@ def main():
   restore_cmd = [
     "sudo", "criu", "restore",
     "-D", final_dir,
-    "--shell_job",
+    "--prev-images-dir", previous_dir,
+    "--shell-job",
     "-d",
     "--log-file", os.path.join(final_dir, "restore.log"),
     "-v4"
   ]
   result = subprocess.run(restore_cmd)
   if result.returncode == 0:
-    print("[SUCCESS} MIgration successful!")
+    print("[SUCCESS] MIgration successful!")
     print("[INFO] restored process should continue from its saved count")
   else:
     print("[ERROR] MIgration restore failed")
