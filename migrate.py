@@ -12,9 +12,8 @@ DESTINATION_CONTAINER = "counter-destination-v2"
 STATE_VOLUME = "counter-state"
 
 
-def run_command(command, check=True, capture=False):
-    print("\nRunning:")
-    print(" ".join(command), flush=True)
+def run_command(command, capture=False, check=True):
+    print("\nRunning:", " ".join(command), flush=True)
 
     result = subprocess.run(
         command,
@@ -42,7 +41,6 @@ def container_status(container):
 
 
 def get_saved_count():
-    # Read the shared volume after the source has stopped.
     result = run_command(
         [
             "docker", "run", "--rm",
@@ -67,19 +65,16 @@ def write_saved_count(count):
         "-v", f"{STATE_VOLUME}:/state",
         "alpine",
         "sh", "-c",
-        f"printf '%s' '{count}' > /state/count.txt"
+        f"printf '%s\\n' '{count}' > /state/count.txt"
     ])
 
-    actual_count = get_saved_count()
-
-    if actual_count != count:
+    actual = get_saved_count()
+    if actual != count:
         raise RuntimeError(
-            f"State write verification failed: expected {count}, "
-            f"found {actual_count}"
+            f"State verification failed: expected {count}, got {actual}"
         )
 
-    print(f"Verified shared state: {actual_count}")
-
+    print(f"Verified final state in shared volume: {actual}")
 
 
 def pre_copy(iteration):
@@ -89,18 +84,15 @@ def pre_copy(iteration):
     )
 
     if container_status(SOURCE_CONTAINER) != "running":
-        raise RuntimeError("Source stopped during pre-copy.")
+        raise RuntimeError("Source is not running during pre-copy.")
 
-    # Observe the latest persisted state while source continues running.
     count = get_saved_count()
-    print(f"Source is running. Latest persisted count: {count}")
-    print("This round observes shared application state; "
-          "it does not copy process memory.")
-
+    print(f"Latest persisted application count: {count}")
+    print("This is an application-state observation, not memory pre-copy.")
     time.sleep(2)
 
 
-def stop_container_if_running(container):
+def stop_if_running(container):
     status = container_status(container)
 
     if status == "running":
@@ -124,43 +116,47 @@ def main():
     print(f"Shared volume: {STATE_VOLUME}")
     print(f"Pre-copy rounds: {ITERATIONS}")
 
-    source_stopped_for_handoff = False
+    source_stopped = False
+    destination_started = False
 
     try:
-        # Confirm both containers exist.
+        # Validate both containers exist.
         container_status(SOURCE_CONTAINER)
         container_status(DESTINATION_CONTAINER)
 
-        # The destination must not update the shared state during pre-copy.
-        stop_container_if_running(DESTINATION_CONTAINER)
+        # Keep destination inactive while source is running.
+        stop_if_running(DESTINATION_CONTAINER)
 
-        # Ensure the source is running before taking preliminary snapshots.
         if container_status(SOURCE_CONTAINER) != "running":
             run_command(["docker", "start", SOURCE_CONTAINER])
 
+        # Preliminary rounds: source continues counting.
         for iteration in range(1, ITERATIONS + 1):
             pre_copy(iteration)
 
         print("\n============= FINAL STATE HANDOFF =============")
 
-        # Stop source. Its SIGTERM handler saves the final count.
+        # Stop source so its SIGTERM handler saves the final count.
         run_command(["docker", "stop", SOURCE_CONTAINER])
-        source_stopped_for_handoff = True
+        source_stopped = True
 
-        print("Source stopped. Reading its final saved count...")
         expected_count = get_saved_count()
-        print(f"VERIFICATION: final source count = {expected_count}")
+        print(f"Source final saved count: {expected_count}")
+
+        # Explicitly persist and verify the handoff value.
+        write_saved_count(expected_count)
 
         print("\n============= DESTINATION RESTORE =============")
 
-        # Capture a timestamp so old Docker logs are not mistaken
-        # for the startup log from this run.
-        start_timestamp = int(time.time())
+        # Remove ambiguity from previous logs by recording a timestamp.
+        start_timestamp = time.time()
 
         run_command(["docker", "start", DESTINATION_CONTAINER])
+        destination_started = True
 
-        # Read only logs created since this startup.
-        time.sleep(1)
+        # Wait briefly for the process to emit its startup message.
+        time.sleep(2)
+
         result = run_command(
             [
                 "docker", "logs",
@@ -171,44 +167,40 @@ def main():
         )
 
         fresh_logs = result.stdout
-        print("\nDestination startup logs:")
-        print(fresh_logs if fresh_logs else "(No new logs returned)")
+        print("\nDestination logs from this startup:")
+        print(fresh_logs if fresh_logs else "(No new stdout logs returned)")
 
         expected_message = f"Resuming from count: {expected_count}"
 
         if expected_message not in fresh_logs:
             raise RuntimeError(
-                "Destination startup count could not be verified. "
-                f"Expected: {expected_message!r}. "
-                "Source remains stopped; do not start both counters."
+                f"Could not verify destination startup count. "
+                f"Expected exact message: {expected_message!r}"
             )
 
         print("\n[MIGRATION VERIFIED]")
         print(f"Source final count: {expected_count}")
         print(f"Destination resumed from: {expected_count}")
-        print("Only the destination should now be counting.")
+        print("Destination is now the active counter.")
         print(
-            "Note: this is application-state handoff through a shared "
-            "volume, not CRIU or process-memory migration."
+            "This is application-state handoff using a shared Docker "
+            "volume. It is not CRIU or process-memory migration."
         )
 
     except Exception as exc:
         print(f"\n[MIGRATION FAILED] {exc}", file=sys.stderr)
 
-        # If destination did not successfully take over, avoid
-        # leaving both counters active.
+        # Avoid leaving both counters active after a failed handoff.
         try:
-            if container_status(DESTINATION_CONTAINER) == "running":
-                run_command(["docker", "stop", DESTINATION_CONTAINER])
+            if destination_started:
+                stop_if_running(DESTINATION_CONTAINER)
 
-            if source_stopped_for_handoff:
-                print("Restarting source for recovery...")
-                run_command(["docker", "start", SOURCE_CONTAINER])
+            if source_stopped:
+                print("Restoring source service for recovery...")
+                if container_status(SOURCE_CONTAINER) != "running":
+                    run_command(["docker", "start", SOURCE_CONTAINER])
         except Exception as recovery_error:
-            print(
-                f"Recovery also failed: {recovery_error}",
-                file=sys.stderr
-            )
+            print(f"Recovery failed: {recovery_error}", file=sys.stderr)
 
         sys.exit(1)
 
